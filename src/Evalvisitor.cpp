@@ -3,30 +3,34 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <cmath>
 
 static std::string floatToString(double x){ std::ostringstream oss; oss<<std::fixed<<std::setprecision(6)<<x; return oss.str(); }
 
-static Value toBool(const Value &v){ switch(v.type){ case Value::TBool: return v; case Value::TInt: return Value::Bool(v.i!=0); case Value::TFloat: return Value::Bool(v.f!=0.0); case Value::TString: return Value::Bool(!v.s.empty()); default: return Value::Bool(false);} }
-static Value toInt(const Value &v){ switch(v.type){ case Value::TInt: return v; case Value::TBool: return Value::Int(v.b? cpp_int(1): cpp_int(0)); case Value::TFloat: return Value::Int((long long)v.f); case Value::TString: { try{ return Value::Int(cpp_int(v.s)); } catch(...){ return Value::Int(cpp_int(0)); } } default: return Value::Int(cpp_int(0)); } }
-static Value toFloat(const Value &v){ switch(v.type){ case Value::TFloat: return v; case Value::TInt: return Value::Float((double)(long long)v.i); case Value::TBool: return Value::Float(v.b?1.0:0.0); case Value::TString: return Value::Float(std::stod(v.s)); default: return Value::Float(0.0);} }
-static Value toStr(const Value &v){ switch(v.type){ case Value::TString: return v; case Value::TBool: return Value::Str(v.b?"True":"False"); case Value::TInt: { std::ostringstream oss; oss<< v.i; return Value::Str(oss.str()); }
-    case Value::TFloat: return Value::Str(floatToString(v.f)); default: return Value::Str("None"); } }
+static std::string bigIntToString(const BigInt &x){ if(x.d.empty()) return "0"; std::string s; if(x.sign==-1) s.push_back('-'); int n=x.d.size(); s += std::to_string(x.d.back()); for(int i=n-2;i>=0;--i){ std::string chunk=std::to_string(x.d[i]); s += std::string(9 - chunk.size(), '0') + chunk; } return s; }
+static double bigIntToDouble(const BigInt &x){ if(x.d.empty()) return 0.0; double val=0.0; for(int i=(int)x.d.size()-1;i>=0;--i){ val = val*BigInt::base + x.d[i]; } return x.sign==-1 ? -val : val; }
+static bool stringIsInteger(const std::string &s){ if(s.empty()) return false; size_t i=0; if(s[0]=='+'||s[0]=='-') i=1; if(i>=s.size()) return false; for(; i<s.size(); ++i) if(s[i]<'0'||s[i]>'9') return false; return true; }
+
+static Value toBool(const Value &v){ switch(v.type){ case Value::TBool: return v; case Value::TInt: return Value::Bool(!v.i.d.empty()); case Value::TFloat: return Value::Bool(v.f!=0.0); case Value::TString: return Value::Bool(!v.s.empty()); default: return Value::Bool(false);} }
+static Value toInt(const Value &v){ switch(v.type){ case Value::TInt: return v; case Value::TBool: return Value::Int(BigInt(v.b?1:0)); case Value::TFloat: return Value::Int(BigInt((long long)v.f)); case Value::TString: { if(stringIsInteger(v.s)) return Value::Int(BigInt(v.s)); return Value::Int(BigInt(0)); } default: return Value::Int(BigInt(0)); } }
+static Value toFloat(const Value &v){ switch(v.type){ case Value::TFloat: return v; case Value::TInt: return Value::Float(bigIntToDouble(v.i)); case Value::TBool: return Value::Float(v.b?1.0:0.0); case Value::TString: return Value::Float(std::stod(v.s)); default: return Value::Float(0.0);} }
+static Value toStr(const Value &v){ switch(v.type){ case Value::TString: return v; case Value::TBool: return Value::Str(v.b?"True":"False"); case Value::TInt: return Value::Str(bigIntToString(v.i)); case Value::TFloat: return Value::Str(floatToString(v.f)); default: return Value::Str("None"); } }
 
 static Value promoteAdd(const Value &a, const Value &b, char op){ if(a.type==Value::TString && b.type==Value::TString){ if(op=='+') return Value::Str(a.s+b.s); }
-    if(a.type==Value::TFloat || b.type==Value::TFloat){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? (double)(long long)a.i : 0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? (double)(long long)b.i : 0.0); if(op=='+') return Value::Float(x+y); else return Value::Float(x-y); }
+    if(a.type==Value::TFloat || b.type==Value::TFloat){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? bigIntToDouble(a.i) : 0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? bigIntToDouble(b.i) : 0.0); if(op=='+') return Value::Float(x+y); else return Value::Float(x-y); }
     if(a.type==Value::TInt && b.type==Value::TInt){ if(op=='+') return Value::Int(a.i+b.i); else return Value::Int(a.i-b.i); }
     return Value::None(); }
 static Value add(const Value &a, const Value &b){ return promoteAdd(a,b,'+'); }
 static Value sub(const Value &a, const Value &b){ return promoteAdd(a,b,'-'); }
-static Value mul(const Value &a, const Value &b){ if(a.type==Value::TInt && b.type==Value::TInt) return Value::Int(a.i*b.i); if(a.type==Value::TFloat || b.type==Value::TFloat){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? 0.0 : 0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? 0.0 : 0.0); return Value::Float(x*y); }
-    if(a.type==Value::TString && b.type==Value::TInt){ long long times = (long long)b.i; if(times<0) times=0; std::string r; r.reserve(a.s.size()*std::min(times, (long long)100000)); for(long long i=0;i<times;++i) r+=a.s; return Value::Str(r); }
-    if(a.type==Value::TInt && b.type==Value::TString){ long long times = (long long)a.i; if(times<0) times=0; std::string r; r.reserve(b.s.size()*std::min(times, (long long)100000)); for(long long i=0;i<times;++i) r+=b.s; return Value::Str(r); }
+static Value mul(const Value &a, const Value &b){ if(a.type==Value::TInt && b.type==Value::TInt) return Value::Int(a.i*b.i); if(a.type==Value::TFloat || b.type==Value::TFloat){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? bigIntToDouble(a.i) : 0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? bigIntToDouble(b.i) : 0.0); return Value::Float(x*y); }
+    if(a.type==Value::TString && b.type==Value::TInt){ long long times = (long long)(b.i.d.empty()?0:b.i.d[0]); if(times<0) times=0; std::string r; for(long long i=0;i<times;++i) r+=a.s; return Value::Str(r); }
+    if(a.type==Value::TInt && b.type==Value::TString){ long long times = (long long)(a.i.d.empty()?0:a.i.d[0]); if(times<0) times=0; std::string r; for(long long i=0;i<times;++i) r+=b.s; return Value::Str(r); }
     return Value::None(); }
-static Value idiv(const Value &a, const Value &b){ if(a.type==Value::TInt && b.type==Value::TInt){ cpp_int q = a.i / b.i; cpp_int r = a.i % b.i; if((a.i<0) != (b.i<0) && r!=0) q -= 1; return Value::Int(q); } if(a.type==Value::TFloat || b.type==Value::TFloat){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? 0.0:0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? 0.0:0.0); long long q = (long long)std::floor(x/y); return Value::Int(q); } return Value::None(); }
-static Value fdiv(const Value &a, const Value &b){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? (double) (long long)a.i : 0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? (double) (long long)b.i : 0.0); return Value::Float(x/y); }
+static Value idiv(const Value &a, const Value &b){ if(a.type==Value::TInt && b.type==Value::TInt){ return Value::Int(a.i / b.i); } if(a.type==Value::TFloat || b.type==Value::TFloat){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? bigIntToDouble(a.i):0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? bigIntToDouble(b.i):0.0); long long q = (long long)std::floor(x/y); return Value::Int(BigInt(q)); } return Value::None(); }
+static Value fdiv(const Value &a, const Value &b){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? bigIntToDouble(a.i) : 0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? bigIntToDouble(b.i) : 0.0); return Value::Float(x/y); }
 static Value mod(const Value &a, const Value &b){ if(a.type==Value::TInt && b.type==Value::TInt){ Value q = idiv(a,b); return Value::Int(a.i - q.i * b.i); } return Value::None(); }
 static int cmp(const Value &a, const Value &b){ if(a.type==Value::TString && b.type==Value::TString){ if(a.s<b.s) return -1; if(a.s>b.s) return 1; return 0; }
-    if(a.type==Value::TFloat || b.type==Value::TFloat){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? (double)(long long)a.i : 0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? (double)(long long)b.i : 0.0); if(x<y) return -1; if(x>y) return 1; return 0; }
+    if(a.type==Value::TFloat || b.type==Value::TFloat){ double x = (a.type==Value::TFloat)? a.f : (a.type==Value::TInt? bigIntToDouble(a.i) : 0.0); double y = (b.type==Value::TFloat)? b.f : (b.type==Value::TInt? bigIntToDouble(b.i) : 0.0); if(x<y) return -1; if(x>y) return 1; return 0; }
     if(a.type==Value::TInt && b.type==Value::TInt){ if(a.i<b.i) return -1; if(a.i>b.i) return 1; return 0; }
     if(a.type==Value::TBool && b.type==Value::TBool){ if(a.b==b.b) return 0; return a.b?1:-1; }
     return 0; }
@@ -58,7 +62,7 @@ std::any EvalVisitor::visitComparison(Python3Parser::ComparisonContext *ctx){ Va
 std::any EvalVisitor::visitArith_expr(Python3Parser::Arith_exprContext *ctx){ Value v = std::any_cast<Value>(visit(ctx->term(0))); for(size_t i=1;i<ctx->term().size();++i){ auto op = ctx->addorsub_op(i-1); Value r = std::any_cast<Value>(visit(ctx->term(i))); if(op->ADD()) v=add(v,r); else v=sub(v,r); } return v; }
 std::any EvalVisitor::visitTerm(Python3Parser::TermContext *ctx){ Value v = std::any_cast<Value>(visit(ctx->factor(0))); for(size_t i=1;i<ctx->factor().size();++i){ auto op=ctx->muldivmod_op(i-1); Value r = std::any_cast<Value>(visit(ctx->factor(i))); if(op->STAR()) v=mul(v,r); else if(op->DIV()) v=fdiv(v,r); else if(op->IDIV()) v=idiv(v,r); else v=mod(v,r); } return v; }
 std::any EvalVisitor::visitFactor(Python3Parser::FactorContext *ctx){ if(ctx->atom_expr()) return visit(ctx->atom_expr()); auto v = std::any_cast<Value>(visit(ctx->factor())); if(ctx->MINUS()){
-        if(v.type==Value::TInt){ return Value::Int(-v.i); } else if(v.type==Value::TFloat){ return Value::Float(-v.f);} }
+        if(v.type==Value::TInt){ return Value::Int(BigInt(0) - v.i); } else if(v.type==Value::TFloat){ return Value::Float(-v.f);} }
     return v; }
 
 std::any EvalVisitor::visitAtom_expr(Python3Parser::Atom_exprContext *ctx){ Value v = std::any_cast<Value>(visit(ctx->atom())); if(ctx->trailer()){ auto tr = ctx->trailer(); auto nameNode = ctx->atom()->NAME(); if(nameNode){ std::string fn = nameNode->getSymbol()->getText(); std::vector<Value> args; if(tr->arglist()){ for(auto arg: tr->arglist()->argument()){ args.push_back(std::any_cast<Value>(visit(arg->test(0)))); } }
@@ -74,19 +78,16 @@ std::any EvalVisitor::visitAtom_expr(Python3Parser::Atom_exprContext *ctx){ Valu
     return v; }
 
 std::any EvalVisitor::visitTrailer(Python3Parser::TrailerContext *ctx){ return 0; }
-std::any EvalVisitor::visitAtom(Python3Parser::AtomContext *ctx){ if(ctx->NAME()){ std::string nm = ctx->NAME()->getSymbol()->getText(); return env.get(nm); } if(ctx->NUMBER()){ auto t = ctx->NUMBER()->getSymbol()->getText(); // lexer distinguishes INTEGER and FLOAT_NUMBER, but parser atom only exposes NUMBER
-        // Try integer parse, fallback to float
-        try{ cpp_int tmp(t); (void)tmp; return Value::Int(tmp); } catch(...){ return Value::Float(std::stod(t)); } } if(!ctx->STRING().empty()){ std::string s; for(auto st: ctx->STRING()){ auto raw = st->getSymbol()->getText(); if(raw.size()>=2) s += raw.substr(1, raw.size()-2); }
+std::any EvalVisitor::visitAtom(Python3Parser::AtomContext *ctx){ if(ctx->NAME()){ std::string nm = ctx->NAME()->getSymbol()->getText(); return env.get(nm); } if(ctx->NUMBER()){ auto t = ctx->NUMBER()->getSymbol()->getText(); if(stringIsInteger(t)) return Value::Int(BigInt(t)); else return Value::Float(std::stod(t)); } if(!ctx->STRING().empty()){ std::string s; for(auto st: ctx->STRING()){ auto raw = st->getSymbol()->getText(); if(raw.size()>=2) s += raw.substr(1, raw.size()-2); }
         return Value::Str(s); } if(ctx->TRUE()) return Value::Bool(true); if(ctx->FALSE()) return Value::Bool(false); if(ctx->NONE()) return Value::None(); if(ctx->OPEN_PAREN()){ return std::any_cast<Value>(visit(ctx->test())); } if(ctx->format_string()){ return visit(ctx->format_string()); } return Value::None(); }
 
 std::any EvalVisitor::visitFormat_string(Python3Parser::Format_stringContext *ctx){ std::string res; for(auto t: ctx->FORMAT_STRING_LITERAL()) res += t->getSymbol()->getText(); for(size_t i=0;i<ctx->OPEN_BRACE().size();++i){ auto val = std::any_cast<Value>(visit(ctx->testlist(i))); res += toStr(val).s; } return Value::Str(res); }
 
 std::any EvalVisitor::visitFlow_stmt(Python3Parser::Flow_stmtContext *ctx){ if(ctx->break_stmt()) return visit(ctx->break_stmt()); if(ctx->continue_stmt()) return visit(ctx->continue_stmt()); if(ctx->return_stmt()) return visit(ctx->return_stmt()); return 0; }
-struct BreakSignal{}; struct ContinueSignal{};
+struct BreakSignal{}; struct ContinueSignal{}; struct ReturnSignal{ std::any v; };
 std::any EvalVisitor::visitBreak_stmt(Python3Parser::Break_stmtContext *ctx){ throw BreakSignal(); }
 std::any EvalVisitor::visitContinue_stmt(Python3Parser::Continue_stmtContext *ctx){ throw ContinueSignal(); }
-struct ReturnSignal{ std::any v; };
-std::any EvalVisitor::visitReturn_stmt(Python3Parser::Return_stmtContext *ctx){ ReturnSignal r{ctx->testlist()? visit(ctx->testlist()): Value::None()}; throw r; }
+std::any EvalVisitor::visitReturn_stmt(Python3Parser::Return_stmtContext *ctx){ ReturnSignal r{ ctx->testlist()? visit(ctx->testlist()) : Value::None() }; throw r; }
 
 std::any EvalVisitor::visitIf_stmt(Python3Parser::If_stmtContext *ctx){ for(size_t i=0;i<ctx->test().size();++i){ Value v = std::any_cast<Value>(visit(ctx->test(i))); if(toBool(v).b){ visit(ctx->suite(i)); return 0; } } if(ctx->ELSE()) visit(ctx->suite(ctx->suite().size()-1)); return 0; }
 

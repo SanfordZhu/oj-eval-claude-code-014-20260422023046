@@ -21,6 +21,7 @@ struct BigInt {
     void fromString(const std::string &s){ sign=1; d.clear(); size_t i=0; if(i<s.size() && (s[i]=='+'||s[i]=='-')){ if(s[i]=='-') sign=-1; i++; } for(size_t j=s.size(); j>i;){ size_t k = (j>=9? j-9: i); int chunk = std::stoi(s.substr(k, j-k)); d.push_back(chunk); j=k; } trim(); }
     static int cmpAbs(const BigInt &a, const BigInt &b){ if(a.d.size()!=b.d.size()) return a.d.size()<b.d.size()?-1:1; for(int i=(int)a.d.size()-1;i>=0;--i){ if(a.d[i]!=b.d[i]) return a.d[i]<b.d[i]?-1:1; } return 0; }
     friend bool operator<(const BigInt &a, const BigInt &b){ if(a.sign!=b.sign) return a.sign<b.sign; int c=cmpAbs(a,b); return a.sign==1? c<0 : c>0; }
+    friend bool operator>(const BigInt &a, const BigInt &b){ return b<a; }
     friend bool operator==(const BigInt &a, const BigInt &b){ return a.sign==b.sign && a.d==b.d; }
     static BigInt addAbs(const BigInt &a, const BigInt &b){ BigInt r; r.sign=1; int n=std::max(a.d.size(), b.d.size()); r.d.resize(n); long long carry=0; for(int i=0;i<n;++i){ long long s = carry + (i<(int)a.d.size()?a.d[i]:0) + (i<(int)b.d.size()?b.d[i]:0); r.d[i]=int(s%base); carry=s/base; } if(carry) r.d.push_back((int)carry); return r; }
     static BigInt subAbs(const BigInt &a, const BigInt &b){ BigInt r; r.sign=1; r.d.resize(a.d.size()); long long carry=0; for(size_t i=0;i<a.d.size();++i){ long long s = (long long)a.d[i] - (i<b.d.size()?b.d[i]:0) - carry; if(s<0){ s+=base; carry=1; } else carry=0; r.d[i]=(int)s; } r.trim(); return r; }
